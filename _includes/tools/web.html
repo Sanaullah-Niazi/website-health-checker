@@ -1,0 +1,22 @@
+{%- assign hc = site.health_checker -%}
+{%- assign ready = false -%}{%- if hc.api != "" and hc.turnstile_sitekey != "" -%}{%- assign ready = true -%}{%- endif -%}
+<section class="card tool" id="web" aria-label="{{ T.web_title }}" data-api="{{ hc.api }}" data-sitekey="{{ hc.turnstile_sitekey }}">
+  <form class="web-form" id="web-form" novalidate>
+    <label class="field-label" for="web-url">{{ T.web_label }}</label>
+    <div class="field-row">
+      <input class="field mono" id="web-url" type="url" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" dir="ltr" placeholder="https://example.com" maxlength="2000" required{% unless ready %} disabled{% endunless %}>
+      <button class="btn btn-primary btn-sm" type="submit" id="web-check"{% unless ready %} disabled{% endunless %}>{% include icon.html name="radar" px=16 %}<span>{{ T.web_check }}</span></button>
+    </div>
+    <div class="web-captcha" id="web-captcha"></div>
+  </form>
+  {%- unless ready %}
+  <p class="tool-msg">{{ T.web_not_ready }}</p>
+  {%- endunless %}
+  <div class="tool-out" id="web-progress" aria-live="polite"></div>
+  <p class="tool-note">{{ T.web_passive }}</p>
+  <p class="tool-note">{% assign days_tok = "{days}" %}{{ T.web_disclaimer | replace: days_tok, hc.report_days }} <a href="{{ L }}/privacy/">{{ T.web_privacy }}</a></p>
+</section>
+<div class="web-report" id="web-report" hidden></div>
+{%- if ready %}
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+{%- endif %}

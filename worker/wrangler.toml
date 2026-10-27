@@ -1,0 +1,36 @@
+# Cloudflare Worker for the Website Health & Security Checker. Setup steps: worker/README.md
+name = "site-checker"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+# The API lives at https://api.sanaullahniazi.com (the domain is on Cloudflare, so the DNS record is created for you).
+routes = [{ pattern = "api.sanaullahniazi.com", custom_domain = true }]
+
+# Delete expired reports and rate-limit counters once a day.
+[triggers]
+crons = ["17 3 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "site-checker"
+# The deploy workflow (.github/workflows/deploy-worker.yml) creates the database and fills this in.
+# To deploy by hand instead, paste the id that `npx wrangler d1 create site-checker` prints.
+database_id = "set-by-the-deploy-workflow"
+
+[vars]
+# Pages allowed to call this API.
+ALLOWED_ORIGINS = "https://sanaullahniazi.com,https://www.sanaullahniazi.com,http://localhost:4000,http://127.0.0.1:4000"
+# Scans per visitor per hour, and fresh scans per day for everyone (keeps you inside the free API limits).
+SCANS_PER_HOUR = "5"
+SCANS_PER_DAY = "300"
+# Reuse a scan of the same address for this many hours instead of scanning again.
+CACHE_HOURS = "6"
+# Delete reports (and the scanned address) after this many days.
+REPORT_DAYS = "7"
+
+# Secrets, set with `npx wrangler secret put NAME` (never commit them):
+#   PSI_KEY           Google PageSpeed Insights API key
+#   TURNSTILE_SECRET  Cloudflare Turnstile secret key
+#   SSL_LABS_EMAIL    (optional) the email you registered with SSL Labs; leave unset to turn SSL Labs off
+#   HASH_SALT         (optional) any long random text, used to hash IP addresses for the rate limit
