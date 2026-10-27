@@ -17,7 +17,7 @@ Everything here fits the free plans. Nothing costs money unless traffic grows pa
 | Cloudflare DNS over HTTPS | SPF, DMARC, DKIM and the private-address check | free, no key |
 
 The checker's own limits are in `wrangler.toml`: 5 scans per visitor per hour, 300 fresh scans a day in total,
-results reused for 6 hours, reports deleted after 7 days.
+results reused for 1 hour, reports deleted after 7 days.
 
 ## One-time setup
 

@@ -406,17 +406,26 @@
     });
     var pdfBtn = h("button", { class: "btn btn-primary btn-sm", type: "button" }, h("span", null, tr("w_pdf")));
     pdfBtn.addEventListener("click", function () { downloadPdf(d, pdfBtn); });
-    var freshBtn = h("button", { class: "btn btn-sm", type: "button" }, h("span", null, tr("w_fresh")));
-    freshBtn.addEventListener("click", function () {
-      input.value = d.url;
-      form.scrollIntoView({ behavior: "smooth", block: "center" });
-      startScan(true);
-    });
+    var freshButton = function (cls) {
+      var b = h("button", { class: cls, type: "button" }, h("span", null, tr("w_fresh")));
+      b.addEventListener("click", function () {
+        input.value = d.url;
+        form.scrollIntoView({ behavior: "smooth", block: "center" });
+        startScan(true);
+      });
+      return b;
+    };
+    var freshBtn = freshButton("btn btn-sm");
     var bars = h("ul", { class: "web-bars" });
     CATS.forEach(function (c) { bars.appendChild(bar(c, r.scores[c])); });
     var missing = CATS.some(function (c) { return r.scores[c] == null; });
 
+    // A saved copy more than 10 minutes old says so at the very top, with its own fresh scan button, so it isn't mistaken
+    // for a new result.
+    var cachedBox = cached && Date.now() - d.created > 10 * 60000 ? h("div", { class: "web-cached web-noprint", role: "status" },
+      h("p", null, tr("w_cached", { t: fmtDate(d.created, true) })), freshButton("btn btn-primary btn-sm")) : null;
     var head = h("header", { class: "card web-summary" },
+      cachedBox,
       h("p", { class: "web-printonly web-brand" }, document.title.split(" | ").pop() + " · " + location.host + location.pathname),
       h("div", { class: "web-summary-main" },
         ring(r.overall, r.grade),
@@ -426,7 +435,6 @@
           h("p", { class: "muted" }, ltr(d.url)),
           h("p", { class: "muted" }, tr("w_scanned", { t: fmtDate(d.created, true) })),
           bars)),
-      cached ? h("p", { class: "tool-note web-noprint" }, tr("w_cached", { t: fmtDate(d.created, true) })) : null,
       missing ? h("p", { class: "tool-note" }, tr("w_partial")) : null,
       h("div", { class: "btn-row web-noprint" }, pdfBtn, shareBtn, freshBtn));
 

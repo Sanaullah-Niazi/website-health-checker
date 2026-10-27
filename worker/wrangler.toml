@@ -25,7 +25,7 @@ ALLOWED_ORIGINS = "https://sanaullahniazi.com,https://www.sanaullahniazi.com,htt
 SCANS_PER_HOUR = "5"
 SCANS_PER_DAY = "300"
 # Reuse a scan of the same address for this many hours instead of scanning again.
-CACHE_HOURS = "6"
+CACHE_HOURS = "1"
 # Delete reports (and the scanned address) after this many days.
 REPORT_DAYS = "7"
 

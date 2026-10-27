@@ -67,7 +67,7 @@ async function startScan(request, env) {
   const target = u.href;
 
   const now = Date.now();
-  const cacheMs = num(env.CACHE_HOURS, 6) * 3600_000;
+  const cacheMs = num(env.CACHE_HOURS, 1) * 3600_000;
   if (!input.fresh) {
     const hit = await env.DB.prepare(
       "SELECT id, key FROM scans WHERE url = ? AND created > ? AND core IS NOT NULL AND psi_mobile IS NOT NULL ORDER BY created DESC LIMIT 1",
