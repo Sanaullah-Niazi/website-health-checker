@@ -159,7 +159,7 @@
     var chain = Promise.resolve();
     pages.forEach(function (page, i) {
       chain = chain.then(function () {
-        return window.html2canvas(page, { scale: 1.75, backgroundColor: "#ffffff", logging: false, width: PAGE_W, height: PAGE_H, windowWidth: PAGE_W });
+        return window.html2canvas(page, { scale: 1.75, backgroundColor: "#ffffff", logging: false, width: PAGE_W, height: PAGE_H, windowWidth: PAGE_W, onclone: stylesReady });
       }).then(function (canvas) {
         if (i) pdf.addPage();
         pdf.addImage(canvas.toDataURL("image/jpeg", 0.85), "JPEG", 0, 0, 210, 297, undefined, "FAST");
@@ -177,6 +177,18 @@
     }).then(function () { holder.remove(); }, function (e) { holder.remove(); throw e; });
 
     // ---------- Helpers ----------
+    // html2canvas draws a copy of the page in a hidden frame, and that copy fetches the stylesheet again. When the
+    // server says not to cache it, the copy can be drawn before the styles arrive, giving a plain, unstyled page.
+    // So wait until every stylesheet and font in the copy has loaded (at most 8 seconds).
+    function stylesReady(doc) {
+      var links = [].slice.call(doc.querySelectorAll('link[rel="stylesheet"]'));
+      var waits = links.map(function (l) {
+        if (l.sheet) return Promise.resolve();
+        return new Promise(function (ok) { l.addEventListener("load", ok); l.addEventListener("error", ok); });
+      });
+      if (doc.fonts && doc.fonts.ready) waits.push(doc.fonts.ready);
+      return Promise.race([Promise.all(waits), new Promise(function (ok) { setTimeout(ok, 8000); })]);
+    }
     function CATS_missing() { return k.CATS.some(function (c) { return r.scores[c] == null; }); }
     function sevPill(sev) { return h("span", { class: "web-sev sev-" + sev }, tr("sev_" + sev)); }
     function sevCounts(c) {
