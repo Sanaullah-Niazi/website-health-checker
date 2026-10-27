@@ -1,10 +1,12 @@
 // Qualys SSL Labs API v4: certificate, TLS protocols and the A+ to F grade.
 // Turned on only when SSL_LABS_EMAIL (an email registered with SSL Labs) is set. A fresh assessment takes
 // one to two minutes, so the page asks again every 10 seconds until it's ready; cached results come back at once.
+// SSL Labs' own copy is reused for at most 1 hour (maxAge), the same as a whole scan (CACHE_HOURS), so a fresh scan
+// after a TLS change shows the new grade.
 
 export async function runSsl(env, host) {
   if (!env.SSL_LABS_EMAIL) return { status: "off" };
-  const url = `https://api.ssllabs.com/api/v4/analyze?host=${encodeURIComponent(host)}&fromCache=on&maxAge=24&all=done`;
+  const url = `https://api.ssllabs.com/api/v4/analyze?host=${encodeURIComponent(host)}&fromCache=on&maxAge=1&all=done`;
   const res = await fetch(url, { headers: { email: env.SSL_LABS_EMAIL }, signal: AbortSignal.timeout(20000) });
   if (res.status === 429 || res.status === 529 || res.status === 503) return { status: "busy" };
   if (res.status === 441) return { status: "error", error: "not_registered" };
