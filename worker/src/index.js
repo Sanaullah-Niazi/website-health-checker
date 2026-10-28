@@ -175,7 +175,9 @@ async function verifyTurnstile(env, token, ip) {
   form.append("secret", env.TURNSTILE_SECRET);
   form.append("response", token);
   form.append("remoteip", ip);
-  const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: form });
+  // One retry: a network hiccup here would otherwise fail the scan with a bare server error.
+  const verify = () => fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: form, signal: AbortSignal.timeout(8000) });
+  const r = await verify().catch(() => verify());
   const j = await r.json().catch(() => ({}));
   if (!j.success) throw codeError("captcha", 403);
 }

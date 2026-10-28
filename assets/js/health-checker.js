@@ -53,16 +53,19 @@
 
   // ---------- Talking to the Worker ----------
   function api(path, opts) {
-    return fetch(API + path, opts).then(function (r) {
+    return fetch(API + path, opts).catch(function () {
+      var e = new Error("network"); e.code = "network"; throw e;
+    }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         if (!r.ok || j.error) { var e = new Error(j.error || "http_" + r.status); e.code = j.error || "generic"; throw e; }
         return j;
       });
     });
   }
+  // An error without its own message names its code, so a screenshot of it says what went wrong.
   function errText(code) {
     var key = "w_err_" + code;
-    return TEXT[key] ? tr(key) : tr("w_err_generic");
+    return TEXT[key] ? tr(key) : tr("w_err_generic") + " (" + (code || "page") + ")";
   }
 
   // ---------- CAPTCHA (Cloudflare Turnstile) ----------
@@ -129,7 +132,10 @@
         if (s.cached) { STEPS.forEach(function (x) { setStep(x.id, "done"); }); return loadReport(s.id, true); }
         return runParts(s);
       })
-      .catch(function (e) { fill(progress, h("p", { class: "tool-msg bad" }, errText(e.code))); })
+      .catch(function (e) {
+        if (!e.code && window.console) console.error(e);
+        fill(progress, h("p", { class: "tool-msg bad" }, errText(e.code)));
+      })
       .then(function () {
         button.disabled = false;
         if (window.turnstile && widget !== null) window.turnstile.reset(widget);

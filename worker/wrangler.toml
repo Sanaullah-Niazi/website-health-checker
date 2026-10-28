@@ -7,6 +7,10 @@ workers_dev = true
 # The API lives at https://api.sanaullahniazi.com (the domain is on Cloudflare, so the DNS record is created for you).
 routes = [{ pattern = "api.sanaullahniazi.com", custom_domain = true }]
 
+# Keep the Worker's logs (errors and console output) in the Cloudflare dashboard: Workers > site-checker > Logs.
+[observability]
+enabled = true
+
 # Delete expired reports and rate-limit counters once a day.
 [triggers]
 crons = ["17 3 * * *"]
