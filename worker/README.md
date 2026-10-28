@@ -31,6 +31,28 @@ If a deploy fails with a permissions error about Workers AI, add **Account · Wo
 To turn the live bot off, remove the `[ai]` lines from `wrangler.toml`: the page then offers only the filter and
 "Test your own chatbot".
 
+## YouTube creator tools
+
+The same Worker answers the YouTube tools under [/tools/youtube/](https://sanaullahniazi.com/tools/youtube/)
+(`src/yt.js`, routes `GET /yt/video`, `/yt/channel`, `/yt/suggest`, `/yt/categories`, `/yt/trending`, `/yt/transcript`
+and `/yt/thumb`). Video, channel, category and trending data come from the official **YouTube Data API v3**: 10,000
+free quota units a day, and each lookup here costs 1 to 4. Answers are cached by Cloudflare for hours, and
+`YT_PER_HOUR` / `YT_PER_DAY` in `wrangler.toml` keep visitors inside the free quota.
+
+To switch them on, make a YouTube Data API key (thumbnails work without one):
+
+1. In [console.cloud.google.com](https://console.cloud.google.com/), open the same project as the PageSpeed key.
+2. **APIs & Services → Library**, search **YouTube Data API v3**, click **Enable**.
+3. **APIs & Services → Credentials → Create credentials → API key**. Under **API restrictions** choose
+   **Restrict key → YouTube Data API v3**, and save. Leave "Application restrictions" on None (the server uses it).
+4. Add it to GitHub as the repository secret `YT_KEY`, then run **Actions → Deploy website checker → Run workflow**.
+   `https://api.sanaullahniazi.com/` then shows `"yt":true`.
+
+Keyword ideas use YouTube's public search suggestions, and transcripts use the caption track the YouTube player loads.
+Neither is part of the official API, so they can stop working if YouTube changes them; the transcript page then
+offers to clean up a transcript pasted from YouTube's own "Show transcript" panel. `YT_TRANSCRIPTS = "off"` turns the
+transcript route off. There is deliberately no video downloader: downloading videos breaks YouTube's Terms of Service.
+
 ## One-time setup
 
 ### 1. Turnstile (the CAPTCHA)

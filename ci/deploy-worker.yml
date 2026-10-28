@@ -4,6 +4,7 @@
 #   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID  to deploy
 #   PSI_KEY, TURNSTILE_SECRET                    for the checker itself
 #   SSL_LABS_EMAIL, HASH_SALT                    optional
+#   YT_KEY                                       YouTube Data API key, for the YouTube tools
 name: Deploy website checker
 
 on:
@@ -60,8 +61,9 @@ jobs:
           TURNSTILE_SECRET: ${{ secrets.TURNSTILE_SECRET }}
           SSL_LABS_EMAIL: ${{ secrets.SSL_LABS_EMAIL }}
           HASH_SALT: ${{ secrets.HASH_SALT }}
+          YT_KEY: ${{ secrets.YT_KEY }}
         run: |
-          node -e 'const o={};for(const k of ["PSI_KEY","TURNSTILE_SECRET","SSL_LABS_EMAIL","HASH_SALT"])if(process.env[k])o[k]=process.env[k];require("fs").writeFileSync("/tmp/secrets.json",JSON.stringify(o))'
+          node -e 'const o={};for(const k of ["PSI_KEY","TURNSTILE_SECRET","SSL_LABS_EMAIL","HASH_SALT","YT_KEY"])if(process.env[k])o[k]=process.env[k];require("fs").writeFileSync("/tmp/secrets.json",JSON.stringify(o))'
           if [ "$(cat /tmp/secrets.json)" != "{}" ]; then npx wrangler secret bulk /tmp/secrets.json; fi
           rm -f /tmp/secrets.json
       - name: Check it answers

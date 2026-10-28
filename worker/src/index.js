@@ -8,6 +8,9 @@
 //   POST /lab/session          {token}                     checks the CAPTCHA, returns {key, runs, expires}
 //   POST /lab/run              header X-Lab-Key, {text, mode, level}   one attack on the demo bot
 //
+// And the YouTube creator tools (/tools/youtube/, the routes are in yt.js):
+//   GET  /yt/video, /yt/channel, /yt/suggest, /yt/categories, /yt/trending, /yt/transcript, /yt/thumb
+//
 // A scan is split into parts because a free Worker may make only 50 outbound requests per call.
 // Reports are deleted after REPORT_DAYS by the daily cron job.
 import { checkUrlShape, guardHost, Budget, codeError } from "./net.js";
@@ -17,6 +20,7 @@ import { runLinks } from "./links.js";
 import { runSsl } from "./ssl.js";
 import { buildReport } from "./report.js";
 import { attack, LEVELS } from "./lab.js";
+import { handleYt } from "./yt.js";
 
 const PARTS = {
   core: "core",
@@ -36,13 +40,17 @@ export default {
     try {
       const url = new URL(request.url);
       const parts = url.pathname.split("/").filter(Boolean);
+      if (parts[0] === "yt" && parts.length === 2) {
+        const ip = request.headers.get("cf-connecting-ip") || "unknown";
+        return await handleYt(request, env, ctx, parts[1], { cors, limit: () => ytLimit(env, ip) });
+      }
       let body;
       if (request.method === "POST" && parts[0] === "scan" && parts.length === 1) body = await startScan(request, env);
       else if (request.method === "POST" && parts[0] === "scan" && parts.length === 3) body = await runPart(request, env, parts[1], parts[2]);
       else if (request.method === "GET" && parts[0] === "report" && parts.length === 2) body = await getReport(env, parts[1]);
       else if (request.method === "POST" && parts[0] === "lab" && parts[1] === "session" && parts.length === 2) body = await startLab(request, env);
       else if (request.method === "POST" && parts[0] === "lab" && parts[1] === "run" && parts.length === 2) body = await runLab(request, env);
-      else if (request.method === "GET" && parts.length === 0) body = { ok: true, ssl: !!env.SSL_LABS_EMAIL, psi: !!env.PSI_KEY, lab: !!env.AI };
+      else if (request.method === "GET" && parts.length === 0) body = { ok: true, ssl: !!env.SSL_LABS_EMAIL, psi: !!env.PSI_KEY, lab: !!env.AI, yt: !!env.YT_KEY };
       else throw codeError("not_found", 404);
       return json(body, 200, cors);
     } catch (e) {
@@ -270,6 +278,21 @@ async function rateLimit(env, ip, now) {
   ]);
   if (a.results[0].n > num(env.SCANS_PER_HOUR, 5)) throw codeError("rate_limited", 429);
   if (b.results[0].n > num(env.SCANS_PER_DAY, 300)) throw codeError("daily_limit", 429);
+}
+
+// The YouTube tools: lookups per visitor per hour, and for everyone per day (keeps inside the free API quota).
+async function ytLimit(env, ip) {
+  const now = Date.now();
+  const hour = Math.floor(now / 3600_000);
+  const day = Math.floor(now / 86400_000);
+  const ipKey = `yh:${await sha256(ip + (env.HASH_SALT || env.TURNSTILE_SECRET || ""))}:${hour}`;
+  const upsert = "INSERT INTO hits (k, n, reset) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET n = n + 1 RETURNING n";
+  const [a, b] = await env.DB.batch([
+    env.DB.prepare(upsert).bind(ipKey, (hour + 1) * 3600_000),
+    env.DB.prepare(upsert).bind(`yd:${day}`, (day + 1) * 86400_000),
+  ]);
+  if (a.results[0].n > num(env.YT_PER_HOUR, 60)) throw codeError("rate_limited", 429);
+  if (b.results[0].n > num(env.YT_PER_DAY, 3000)) throw codeError("daily_limit", 429);
 }
 
 // ----- Helpers -----

@@ -43,9 +43,16 @@ LAB_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8"
 LAB_RUNS = "100"
 LAB_SESSIONS_PER_HOUR = "3"
 LAB_RUNS_PER_DAY = "700"
+# YouTube creator tools (/tools/youtube/): lookups per visitor per hour, and for everyone per day. Every lookup costs
+# 1 to 4 of the YouTube Data API's 10,000 free daily units; answers are cached for hours, so repeats are free.
+# YT_TRANSCRIPTS = "off" turns the transcript extractor off (it uses the caption track the YouTube player loads).
+YT_PER_HOUR = "60"
+YT_PER_DAY = "3000"
+YT_TRANSCRIPTS = "on"
 
 # Secrets, set with `npx wrangler secret put NAME` (never commit them):
 #   PSI_KEY           Google PageSpeed Insights API key
 #   TURNSTILE_SECRET  Cloudflare Turnstile secret key
 #   SSL_LABS_EMAIL    (optional) the email you registered with SSL Labs; leave unset to turn SSL Labs off
 #   HASH_SALT         (optional) any long random text, used to hash IP addresses for the rate limit
+#   YT_KEY            YouTube Data API v3 key, for the YouTube tools (thumbnails work without it)
