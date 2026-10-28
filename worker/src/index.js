@@ -4,6 +4,10 @@
 //   POST /scan/:id/:part       header X-Scan-Key           runs one part: core, psi-mobile, psi-desktop, links-0, links-1, ssl
 //   GET  /report/:id                                       the finished report (also the shareable link's data)
 //
+// It also runs the prompt injection lab (/tools/prompt-injection-lab/, the bot itself is in lab.js):
+//   POST /lab/session          {token}                     checks the CAPTCHA, returns {key, runs, expires}
+//   POST /lab/run              header X-Lab-Key, {text, mode, level}   one attack on the demo bot
+//
 // A scan is split into parts because a free Worker may make only 50 outbound requests per call.
 // Reports are deleted after REPORT_DAYS by the daily cron job.
 import { checkUrlShape, guardHost, Budget, codeError } from "./net.js";
@@ -12,6 +16,7 @@ import { runPsi } from "./psi.js";
 import { runLinks } from "./links.js";
 import { runSsl } from "./ssl.js";
 import { buildReport } from "./report.js";
+import { attack, LEVELS } from "./lab.js";
 
 const PARTS = {
   core: "core",
@@ -35,7 +40,9 @@ export default {
       if (request.method === "POST" && parts[0] === "scan" && parts.length === 1) body = await startScan(request, env);
       else if (request.method === "POST" && parts[0] === "scan" && parts.length === 3) body = await runPart(request, env, parts[1], parts[2]);
       else if (request.method === "GET" && parts[0] === "report" && parts.length === 2) body = await getReport(env, parts[1]);
-      else if (request.method === "GET" && parts.length === 0) body = { ok: true, ssl: !!env.SSL_LABS_EMAIL, psi: !!env.PSI_KEY };
+      else if (request.method === "POST" && parts[0] === "lab" && parts[1] === "session" && parts.length === 2) body = await startLab(request, env);
+      else if (request.method === "POST" && parts[0] === "lab" && parts[1] === "run" && parts.length === 2) body = await runLab(request, env);
+      else if (request.method === "GET" && parts.length === 0) body = { ok: true, ssl: !!env.SSL_LABS_EMAIL, psi: !!env.PSI_KEY, lab: !!env.AI };
       else throw codeError("not_found", 404);
       return json(body, 200, cors);
     } catch (e) {
@@ -166,6 +173,75 @@ async function getReport(env, id) {
   };
 }
 
+// ----- Prompt injection lab -----
+
+// A lab session lets one visitor run LAB_RUNS attacks for an hour after a single CAPTCHA, so "Run all" doesn't ask 40 times.
+// The key is signed rather than stored: <id>.<expires>.<signature>.
+async function startLab(request, env) {
+  if (!env.AI) throw codeError("not_configured", 503);
+  const input = await readJson(request);
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  await verifyTurnstile(env, input.token, ip);
+
+  const now = Date.now();
+  const hour = Math.floor(now / 3600_000);
+  const ipKey = `lh:${await sha256(ip + labSecret(env))}:${hour}`;
+  const r = await env.DB.prepare("INSERT INTO hits (k, n, reset) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET n = n + 1 RETURNING n")
+    .bind(ipKey, (hour + 1) * 3600_000).first();
+  if (r.n > num(env.LAB_SESSIONS_PER_HOUR, 3)) throw codeError("rate_limited", 429);
+
+  const payload = `${randomId(9)}.${now + 3600_000}`;
+  return { key: `${payload}.${await sign(env, payload)}`, runs: num(env.LAB_RUNS, 100), expires: now + 3600_000 };
+}
+
+async function runLab(request, env) {
+  if (!env.AI) throw codeError("not_configured", 503);
+  const [sid, exp, sig] = (request.headers.get("x-lab-key") || "").split(".");
+  if (!sid || !exp || !sig || !safeEqual(sig, await sign(env, `${sid}.${exp}`))) throw codeError("forbidden", 403);
+  const now = Date.now();
+  if (+exp < now) throw codeError("expired", 403);
+
+  const input = await readJson(request);
+  const text = typeof input.text === "string" ? input.text.trim() : "";
+  if (!text || text.length > 2000) throw codeError("bad_request");
+  const mode = input.mode === "indirect" ? "indirect" : "direct";
+  const level = LEVELS.includes(input.level) ? input.level : 0;
+
+  // Count every run against the session, and the ones that reach the model against the free daily allowance.
+  const upsert = "INSERT INTO hits (k, n, reset) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET n = n + 1 RETURNING n";
+  const used = await env.DB.prepare(upsert).bind(`ls:${sid}`, +exp).first();
+  const runs = num(env.LAB_RUNS, 100);
+  if (used.n > runs) throw codeError("session_used", 429);
+
+  const day = Math.floor(now / 86400_000);
+  const ai = {
+    run: async (model, opts) => {
+      const d = await env.DB.prepare(upsert).bind(`ld:${day}`, (day + 1) * 86400_000).first();
+      if (d.n > num(env.LAB_RUNS_PER_DAY, 700)) throw codeError("daily_limit", 429);
+      return env.AI.run(model, opts);
+    },
+  };
+  let result;
+  try {
+    result = await attack({ ai, model: env.LAB_MODEL || "@cf/meta/llama-3.1-8b-instruct-fp8", text, mode, level });
+  } catch (e) {
+    if (e.code) throw e;
+    console.error(e);
+    throw codeError("model_error", 502);
+  }
+  return { ...result, level, mode, left: Math.max(0, runs - used.n) };
+}
+
+function labSecret(env) {
+  return env.HASH_SALT || env.TURNSTILE_SECRET || "";
+}
+
+async function sign(env, payload) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("lab:" + labSecret(env)), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return btoa(String.fromCharCode(...new Uint8Array(mac))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 // ----- Abuse protection -----
 
 async function verifyTurnstile(env, token, ip) {
@@ -203,7 +279,7 @@ function corsHeaders(request, env) {
   const allowed = String(env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
   const h = {
     "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": "content-type, x-scan-key",
+    "access-control-allow-headers": "content-type, x-scan-key, x-lab-key",
     "access-control-max-age": "86400",
     vary: "origin",
   };

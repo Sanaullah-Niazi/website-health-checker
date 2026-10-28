@@ -19,6 +19,18 @@ Everything here fits the free plans. Nothing costs money unless traffic grows pa
 The checker's own limits are in `wrangler.toml`: 5 scans per visitor per hour, 300 fresh scans a day in total,
 results reused for 1 hour, reports deleted after 7 days.
 
+## Prompt injection lab
+
+The same Worker runs the live bot of [/tools/prompt-injection-lab/](https://sanaullahniazi.com/tools/prompt-injection-lab/)
+(`src/lab.js`, routes `POST /lab/session` and `POST /lab/run`). The model runs on **Cloudflare Workers AI** through the
+`[ai]` binding in `wrangler.toml`: no API key, and the free plan's 10,000 "neurons" a day cover roughly 900 attacks.
+The lab reuses the Turnstile widget and the `hits` table; it stores no attack text or replies.
+Its input filter is `../_data/pil_rules.json` (shared with the page) and the tests read `../_data/pil_attacks.yml`.
+
+If a deploy fails with a permissions error about Workers AI, add **Account · Workers AI · Read** to the deploy token (My Profile → API Tokens → edit).
+To turn the live bot off, remove the `[ai]` lines from `wrangler.toml`: the page then offers only the filter and
+"Test your own chatbot".
+
 ## One-time setup
 
 ### 1. Turnstile (the CAPTCHA)

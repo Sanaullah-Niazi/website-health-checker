@@ -9,7 +9,7 @@ name: Deploy website checker
 on:
   push:
     branches: [main]
-    paths: ["worker/**", ".github/workflows/deploy-worker.yml"]
+    paths: ["worker/**", "_data/pil_rules.json", "_data/pil_attacks.yml", ".github/workflows/deploy-worker.yml"]
   workflow_dispatch:
 
 permissions:

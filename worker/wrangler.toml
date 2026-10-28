@@ -22,6 +22,11 @@ database_name = "site-checker"
 # To deploy by hand instead, paste the id that `npx wrangler d1 create site-checker` prints.
 database_id = "set-by-the-deploy-workflow"
 
+# Workers AI runs the prompt injection lab's demo bot (/tools/prompt-injection-lab/). Free: 10,000 "neurons" a day,
+# roughly 900 attacks with the model below. Remove these two lines to turn the lab's live bot off.
+[ai]
+binding = "AI"
+
 [vars]
 # Pages allowed to call this API.
 ALLOWED_ORIGINS = "https://sanaullahniazi.com,https://www.sanaullahniazi.com,http://localhost:4000,http://127.0.0.1:4000"
@@ -32,6 +37,12 @@ SCANS_PER_DAY = "300"
 CACHE_HOURS = "1"
 # Delete reports (and the scanned address) after this many days.
 REPORT_DAYS = "7"
+# Prompt injection lab: the model, attacks per lab session (one CAPTCHA, valid an hour), sessions per visitor per hour,
+# and attacks that reach the model per day for everyone.
+LAB_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8"
+LAB_RUNS = "100"
+LAB_SESSIONS_PER_HOUR = "3"
+LAB_RUNS_PER_DAY = "700"
 
 # Secrets, set with `npx wrangler secret put NAME` (never commit them):
 #   PSI_KEY           Google PageSpeed Insights API key

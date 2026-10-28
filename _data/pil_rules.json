@@ -1,0 +1,71 @@
+{
+  "_about": "Prompt injection lab: the input filter. The lab page (assets/js/pil.js) uses it for 'Check a prompt' and the Worker (worker/src/lab.js) uses the same file as defence level 2 and 3. Each rule is a JavaScript regular expression. 'id' names the rule's text in the js: part of _data/tools.yml (pil_rule_<id>). Arabic-script patterns can't use \\b, so they match the word stems.",
+  "rules": [
+    { "id": "override", "flags": "iu", "re": [
+      "\\b(ignore|disregard|forget|override|bypass)\\b[^.\\n]{0,40}\\b(previous|prior|above|earlier|all|your|the|system)\\b[^.\\n]{0,25}\\b(instructions?|rules|prompts?|guidelines|directions)",
+      "(ہدایات|ہدایتوں|ہدایت|قوانین|اصولوں)[^۔\\n]{0,30}(نظر\\s*انداز|بھول|مت\\s*مانو)",
+      "(نظر\\s*انداز|بھول\\s*جاؤ)[^۔\\n]{0,30}(ہدایات|ہدایتوں|قوانین)",
+      "\\b(hidayat|hidayaat|hidayatein|instructions?|rules)\\b[^.\\n]{0,30}\\b(ignore|bhool|bhul|nazar\\s*andaz)",
+      "(لارښوون|قوانین|اصول)[^.\\n]{0,30}(هېر|هیر|پرېږد|له\\s*پامه)"
+    ]},
+    { "id": "reveal", "flags": "iu", "re": [
+      "\\b(repeat|print|reveal|show|output|tell|give|write|share|leak|spell)\\b[^.\\n]{0,40}\\b(system\\s*prompt|initial\\s*prompt|instructions|everything\\s+(written\\s+)?above|(secret|staff|verification|internal|admin|access)\\s+(code|key|password))",
+      "\\b(what\\s+is|what's)\\b[^.\\n]{0,30}\\b(secret|staff|verification|internal)\\s+(code|key|password)",
+      "(کوڈ|ہدایات|پاس\\s*ورڈ|اوپر\\s*لکھی)[^۔\\n]{0,40}(بتاؤ|بتا\\s*دو|دہراؤ|لکھو|لکھ\\s*دو|دکھاؤ|ظاہر|کیا\\s*ہے)",
+      "\\b(code|hidayat|password)\\b[^.\\n]{0,40}\\b(batao|bata\\s*do|dohrao|likho|likh\\s*do|dikhao|kya\\s*hai)",
+      "(کوډ|لارښوون|پټنوم)[^.\\n]{0,40}(ووایه|تکرار|ولیکه|وښیه|راته|څه\\s*دی)",
+      "\\b(word\\s+for\\s+word|verbatim|lafz\\s+ba\\s+lafz|upar\\s+likh\\w*)\\b",
+      "(لفظ\\s*بہ\\s*لفظ|کلمه\\s*په\\s*کلمه)"
+    ]},
+    { "id": "roleplay", "flags": "iu", "re": [
+      "\\b(you\\s+are\\s+now|from\\s+now\\s+on\\s+you\\s+are|pretend\\s+(to\\s+be|you\\s+are)|act\\s+as|roleplay\\s+as|let's\\s+play\\s+a\\s+game)\\b",
+      "\\b(DAN|do\\s+anything\\s+now|developer\\s+mode|debug\\s*bot|jailbreak|no\\s+(rules|restrictions|limits|filters))\\b",
+      "(کوئی\\s*پابندی\\s*نہیں|ڈیبگ\\s*بوٹ|آؤ\\s*ایک\\s*کھیل)",
+      "\\b(koi\\s+pabandi\\s+nahi|aao\\s+ek\\s+game|tum\\s+ab\\s+\\w+\\s+ho)\\b",
+      "(هیڅ\\s*قانون\\s*نه|هیڅ\\s*محدودیت|ډیبګ\\s*بوټ|یوه\\s*لوبه\\s*وکړو)"
+    ]},
+    { "id": "fake_system", "flags": "iu", "re": [
+      "<\\/?\\s*(system|user_input|user|assistant|instructions?|admin|document)\\s*>",
+      "\\[\\s*(system|admin|developer|سسٹم|د\\s*سیسټم)[^\\]]{0,30}\\]",
+      "(^|\\n)\\s*(system|assistant|developer)\\s*:",
+      "(^|\\n)\\s*#{2,}\\s*(new\\s+)?(instructions?|system)"
+    ]},
+    { "id": "authority", "flags": "iu", "re": [
+      "\\b(administrator|admin|developer|IT\\s+department|security\\s+(audit|team)|your\\s+(creator|owner))\\b[^.\\n]{0,80}\\b(requires?|comply|must|authori[sz]ed|override)\\b",
+      "(ایڈمنسٹریٹر|ایڈمن|سیکیورٹی\\s*آڈٹ|آئی\\s*ٹی\\s*شعبے)",
+      "\\b(administrator|security\\s+audit)\\b[^.\\n]{0,60}\\b(chahiye|amal\\s+karo|zaroori)\\b",
+      "(اډمین|امنیتي\\s*پلټنه|ټکنالوژۍ\\s*څانګ)"
+    ]},
+    { "id": "obfuscate", "flags": "iu", "re": [
+      "\\b(backwards?|in\\s+reverse|reversed|base\\s*64|rot\\s*13|hex(adecimal)?|one\\s+(letter|character)\\s+at\\s+a\\s+time|between\\s+each\\s+(letter|character)|spell\\s+(it|out))\\b",
+      "(الٹا\\s*لکھ|ہر\\s*حرف\\s*کے\\s*بیچ)",
+      "\\b(ulta\\s+likh|har\\s+harf)\\b",
+      "(سرچپه|د\\s*هر\\s*توري)"
+    ]},
+    { "id": "translate", "flags": "iu", "re": [
+      "\\btranslate\\b[^.\\n]{0,40}\\b(instructions|prompt|rules|everything\\s+above)",
+      "(ہدایات|ہدایتوں)[^۔\\n]{0,50}ترجمہ",
+      "\\bhidayat\\b[^.\\n]{0,50}\\b(translate|tarjuma)",
+      "لارښوون[^.\\n]{0,50}(وژباړ|ژباړ)"
+    ]},
+    { "id": "hijack", "flags": "iu", "re": [
+      "\\b(reply|respond|answer)\\b[^.\\n]{0,40}\\bonly\\b[^.\\n]{0,30}\\b(words?|with|phrase)\\b",
+      "\\bPWNED\\b",
+      "\\b(stop|quit)\\s+(helping|being|acting)\\b",
+      "(مدد\\s*کرنا\\s*بند|اب\\s*سے\\s*ہر\\s*پیغام)",
+      "\\b(madad\\s+karna\\s+band|ab\\s+se\\s+har)\\b",
+      "(مرسته\\s*بنده|له\\s*اوس\\s*وروسته\\s*هر)"
+    ]},
+    { "id": "ai_note", "flags": "iu", "re": [
+      "\\b(note|message|instructions?)\\s+(to|for)\\s+(the\\s+|any\\s+)?(AI|assistant|model|chatbot|LLM|bot)\\b",
+      "\\b(AI|assistant|model|chatbot)\\s+(reading|processing|summari[sz]ing)\\s+this\\b",
+      "(AI\\s*اسسٹنٹ\\s*کے\\s*لیے|AI\\s*اسسٹنٹ\\s*کے\\s*لئے)",
+      "\\bAI\\s+assistant\\s+ke\\s+liye\\b",
+      "AI\\s*مرستیال\\s*لپاره"
+    ]},
+    { "id": "invisible", "flags": "u", "re": [
+      "[\\u200B-\\u200D\\u2060-\\u2064\\u202A-\\u202E\\u2066-\\u2069\\uFEFF]{2,}",
+      "[\\u{E0000}-\\u{E007F}]"
+    ]}
+  ]
+}
