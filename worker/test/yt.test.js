@@ -1,7 +1,7 @@
 // Run with: npm test (plain Node, no Cloudflare needed). YouTube is replaced by a fake fetch.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { videoId, channelRef, seconds, splitKeywords, hashtags, tagCounts, topics, parseCaptions, getVideo, getChannel, getSuggestions, getTrending, handleYt } from "../src/yt.js";
+import { videoId, channelRef, seconds, splitKeywords, hashtags, tagCounts, topics, parseCaptions, getVideo, getChannel, getOutliers, median, getSuggestions, getTrending, handleYt } from "../src/yt.js";
 
 test("video ids are read from every kind of YouTube link", () => {
   const id = "dQw4w9WgXcQ";
@@ -187,4 +187,34 @@ test("the router counts only fresh lookups and refuses other methods", async (t)
   assert.equal(counted, 1);
   await assert.rejects(handleYt(new Request("https://x/yt/suggest?q=seo", { method: "POST" }), env, null, "suggest", opts), { code: "not_found" });
   await assert.rejects(handleYt(new Request("https://x/yt/nothing"), env, null, "nothing", opts), { code: "not_found" });
+});
+
+test("median of views", () => {
+  assert.equal(median([5, 1, 3]), 3);
+  assert.equal(median([4, 1, 3, 2]), 3);
+  assert.equal(median([]), null);
+});
+
+test("outliers score each upload against the channel's median, over two pages", async (t) => {
+  const day = 86400_000;
+  const page = (token) => (token ? { items: [{ contentDetails: { videoId: "c" } }] } : { items: [{ contentDetails: { videoId: "a" } }, { contentDetails: { videoId: "b" } }], nextPageToken: "P2" });
+  const vids = {
+    a: { id: "a", snippet: { title: "A", publishedAt: new Date(Date.now() - 10 * day).toISOString() }, statistics: { viewCount: "1000", likeCount: "50", commentCount: "5" }, contentDetails: { duration: "PT10M" } },
+    b: { id: "b", snippet: { title: "B", publishedAt: new Date(Date.now() - 20 * day).toISOString() }, statistics: { viewCount: "100" }, contentDetails: { duration: "PT1M" } },
+    c: { id: "c", snippet: { title: "C", publishedAt: new Date(Date.now() - 3600_000).toISOString() }, statistics: { viewCount: "200" } },
+  };
+  const f = fakeFetch({
+    "https://www.googleapis.com/youtube/v3/channels": { items: [{ id: "UC1", snippet: { title: "S" }, statistics: { subscriberCount: "10", viewCount: "1300", videoCount: "3" }, contentDetails: { relatedPlaylists: { uploads: "UU1" } } }] },
+    "https://www.googleapis.com/youtube/v3/playlistItems": (u) => page(u.searchParams.get("pageToken")),
+    "https://www.googleapis.com/youtube/v3/videos": (u) => ({ items: u.searchParams.get("id").split(",").map((id) => vids[id]) }),
+  });
+  t.mock.method(globalThis, "fetch", f);
+  const r = await getOutliers(env, new URLSearchParams({ c: "UC_x5XG1OV2P6uZZ5FSM9Ttw" }));
+  assert.equal(r.sample, 3);
+  assert.equal(r.medianViews, 200);
+  const a = r.uploads.find((v) => v.id === "a");
+  assert.equal(a.score, 5);
+  assert.equal(a.perDay, 100);
+  assert.equal(a.duration, 600);
+  assert.equal(r.uploads.find((v) => v.id === "c").fresh, true);
 });

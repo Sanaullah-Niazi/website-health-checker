@@ -2,6 +2,7 @@
 //
 //   GET /yt/video?v=<link or id>&hl=en                 title, tags, category and numbers of one video
 //   GET /yt/channel?c=<link, @handle or id>&hl=en      channel details, its own keywords and the tags its latest uploads use
+//   GET /yt/outliers?c=<link, @handle or id>           the latest 100 uploads, each scored against the channel's median views
 //   GET /yt/suggest?q=<keyword>&hl=en&gl=US            keyword ideas from YouTube search's autocomplete
 //   GET /yt/categories?gl=US&hl=en                     the video categories of a country
 //   GET /yt/trending?gl=US&cat=<id>&hl=en              the tags most used by the trending videos of a category
@@ -9,7 +10,7 @@
 //   GET /yt/thumb?v=<id>&q=maxres                      a thumbnail as a download (needs no API key)
 //
 // Video, channel, category and trending data come from the official YouTube Data API v3 (secret YT_KEY, 10,000 quota
-// units a day for free; every call here costs 1 unit). Keyword ideas use the public autocomplete that YouTube's own
+// units a day for free; each lookup costs 1 to 5 units). Keyword ideas use the public autocomplete that YouTube's own
 // search box uses, and captions use the same caption track the YouTube player loads, so those two can stop working if
 // YouTube changes them (set YT_TRANSCRIPTS = "off" in wrangler.toml to turn the transcript route off).
 // Nothing a visitor looks up is stored. Videos themselves are never downloaded: that breaks YouTube's terms.
@@ -193,62 +194,125 @@ export async function getVideo(env, q) {
   };
 }
 
-export async function getChannel(env, q) {
+// The channel a link, handle, id or video points at (1 or 2 units).
+async function findChannel(env, q, part) {
   const ref = channelRef(q.get("c"));
   if (!ref) throw ytError("bad_channel");
-  const hl = langOf(q.get("hl"));
   if (ref.video) {
     const j = await api(env, "videos", { part: "snippet", id: ref.video });
     const cid = j.items?.[0]?.snippet?.channelId;
     if (!cid) throw ytError("not_found", 404);
     ref.id = cid;
   }
-  const part = "snippet,statistics,brandingSettings,topicDetails,contentDetails";
-  const params = { part, hl };
+  const params = { part, hl: langOf(q.get("hl")) };
   if (ref.id) params.id = ref.id;
   else if (ref.handle) params.forHandle = ref.handle;
   else params.forUsername = ref.user;
   const j = await api(env, "channels", params);
   const c = j.items?.[0];
   if (!c) throw ytError("not_found", 404);
+  return c;
+}
 
-  // The latest 50 uploads: the tags the channel really uses, its most viewed videos and how often it posts.
-  let recent = [];
+// The latest uploads, 50 per page (2 units a page).
+async function latestUploads(env, c, pages = 1) {
   const uploads = c.contentDetails?.relatedPlaylists?.uploads;
-  if (uploads) {
-    const pl = await api(env, "playlistItems", { part: "contentDetails", playlistId: uploads, maxResults: 50 }).catch(() => null);
+  if (!uploads) return [];
+  const out = [];
+  let pageToken;
+  for (let p = 0; p < pages; p++) {
+    const pl = await api(env, "playlistItems", { part: "contentDetails", playlistId: uploads, maxResults: 50, pageToken }).catch(() => null);
     const ids = (pl?.items || []).map((i) => i.contentDetails?.videoId).filter(Boolean);
-    if (ids.length) {
-      const vs = await api(env, "videos", { part: "snippet,statistics", id: ids.join(","), maxResults: 50 }).catch(() => null);
-      recent = vs?.items || [];
-    }
+    if (!ids.length) break;
+    const vs = await api(env, "videos", { part: "snippet,statistics,contentDetails", id: ids.join(","), maxResults: 50 }).catch(() => null);
+    out.push(...(vs?.items || []));
+    pageToken = pl.nextPageToken;
+    if (!pageToken) break;
   }
-  const dates = recent.map((v) => Date.parse(v.snippet?.publishedAt)).filter(Number.isFinite).sort((a, b) => b - a);
-  const span = dates.length > 1 ? (dates[0] - dates[dates.length - 1]) / (7 * 86400_000) : 0;
-  const views = recent.map((v) => +v.statistics?.viewCount || 0);
+  return out;
+}
+
+export function median(list) {
+  const a = list.filter(Number.isFinite).sort((x, y) => x - y);
+  if (!a.length) return null;
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
+}
+
+// Likes and comments per 100 views, over videos that show both.
+function engagement(videos) {
+  let views = 0, acts = 0;
+  for (const v of videos) {
+    const st = v.statistics || {};
+    if (st.viewCount == null || st.likeCount == null) continue;
+    views += +st.viewCount;
+    acts += +st.likeCount + (+st.commentCount || 0);
+  }
+  return views ? Math.round((acts / views) * 1000) / 10 : null;
+}
+
+function channelHead(c) {
   const s = c.snippet || {};
   const st = c.statistics || {};
   return {
     id: c.id,
     title: s.localized?.title || s.title || "",
     handle: s.customUrl || null,
-    description: s.localized?.description || s.description || "",
-    country: s.country || null,
-    created: s.publishedAt || null,
     thumb: bestThumb(s.thumbnails),
-    banner: c.brandingSettings?.image?.bannerExternalUrl || null,
-    keywords: splitKeywords(c.brandingSettings?.channel?.keywords),
-    topics: topics(c.topicDetails?.topicCategories),
     subscribers: st.hiddenSubscriberCount ? null : +st.subscriberCount || 0,
     views: +st.viewCount || 0,
     videos: +st.videoCount || 0,
+  };
+}
+
+export async function getChannel(env, q) {
+  const c = await findChannel(env, q, "snippet,statistics,brandingSettings,topicDetails,contentDetails");
+  // The latest 50 uploads: the tags the channel really uses, its most viewed videos and how often it posts.
+  const recent = await latestUploads(env, c, 1);
+  const dates = recent.map((v) => Date.parse(v.snippet?.publishedAt)).filter(Number.isFinite).sort((a, b) => b - a);
+  const span = dates.length > 1 ? (dates[0] - dates[dates.length - 1]) / (7 * 86400_000) : 0;
+  const views = recent.map((v) => +v.statistics?.viewCount || 0);
+  const s = c.snippet || {};
+  return {
+    ...channelHead(c),
+    description: s.localized?.description || s.description || "",
+    country: s.country || null,
+    created: s.publishedAt || null,
+    banner: c.brandingSettings?.image?.bannerExternalUrl || null,
+    keywords: splitKeywords(c.brandingSettings?.channel?.keywords),
+    topics: topics(c.topicDetails?.topicCategories),
     sample: recent.length,
     avgViews: views.length ? Math.round(views.reduce((a, b) => a + b, 0) / views.length) : null,
+    medianViews: median(views),
+    engagement: engagement(recent),
     perWeek: span > 0 ? Math.round(((dates.length - 1) / span) * 10) / 10 : null,
     lastUpload: dates.length ? new Date(dates[0]).toISOString() : null,
     tags: tagCounts(recent, 50),
     top: recent.map(videoCard).sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 8),
   };
+}
+
+// Outliers: the latest 100 uploads, each with its views against the channel's median (how vidIQ-style tools spot
+// the ideas that took off). Videos younger than 2 days are marked, because their views are still climbing.
+export async function getOutliers(env, q) {
+  const c = await findChannel(env, q, "snippet,statistics,contentDetails");
+  const list = await latestUploads(env, c, 2);
+  const now = Date.now();
+  const med = median(list.map((v) => +v.statistics?.viewCount || 0));
+  const uploads = list.map((v) => {
+    const views = +v.statistics?.viewCount || 0;
+    const age = Math.max(1, (now - Date.parse(v.snippet?.publishedAt)) / 86400_000);
+    return {
+      ...videoCard(v),
+      likes: v.statistics?.likeCount != null ? +v.statistics.likeCount : null,
+      comments: v.statistics?.commentCount != null ? +v.statistics.commentCount : null,
+      duration: seconds(v.contentDetails?.duration),
+      perDay: Math.round(views / age),
+      score: med ? Math.round((views / med) * 10) / 10 : null,
+      fresh: age < 2,
+    };
+  });
+  return { ...channelHead(c), sample: uploads.length, medianViews: med, uploads };
 }
 
 export async function getCategories(env, q) {
@@ -426,6 +490,7 @@ export async function getThumb(q) {
 const ROUTES = {
   video: { run: getVideo, hours: 6 },
   channel: { run: getChannel, hours: 6 },
+  outliers: { run: getOutliers, hours: 6 },
   suggest: { run: getSuggestions, hours: 24 },
   categories: { run: getCategories, hours: 168 },
   trending: { run: getTrending, hours: 2 },

@@ -9,7 +9,7 @@
 //   POST /lab/run              header X-Lab-Key, {text, mode, level}   one attack on the demo bot
 //
 // And the YouTube creator tools (/tools/youtube/, the routes are in yt.js):
-//   GET  /yt/video, /yt/channel, /yt/suggest, /yt/categories, /yt/trending, /yt/transcript, /yt/thumb
+//   GET  /yt/video, /yt/channel, /yt/outliers, /yt/suggest, /yt/categories, /yt/trending, /yt/transcript, /yt/thumb
 //
 // A scan is split into parts because a free Worker may make only 50 outbound requests per call.
 // Reports are deleted after REPORT_DAYS by the daily cron job.
