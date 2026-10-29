@@ -1,7 +1,7 @@
 // Run with: npm test (plain Node, no Cloudflare needed). YouTube is replaced by a fake fetch.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { videoId, channelRef, seconds, splitKeywords, hashtags, tagCounts, topics, parseCaptions, getVideo, getChannel, getOutliers, median, getSuggestions, getTrending, handleYt } from "../src/yt.js";
+import { videoId, channelRef, seconds, splitKeywords, hashtags, tagCounts, topics, parseCaptions, getVideo, getChannel, getOutliers, median, getReport, healthReport, scale, getSuggestions, getTrending, handleYt } from "../src/yt.js";
 
 test("video ids are read from every kind of YouTube link", () => {
   const id = "dQw4w9WgXcQ";
@@ -193,6 +193,59 @@ test("median of views", () => {
   assert.equal(median([5, 1, 3]), 3);
   assert.equal(median([4, 1, 3, 2]), 3);
   assert.equal(median([]), null);
+});
+
+test("scale draws straight lines between points", () => {
+  const pts = [[0, 0], [10, 50], [20, 100]];
+  assert.equal(scale(5, pts), 25);
+  assert.equal(scale(-1, pts), 0);
+  assert.equal(scale(99, pts), 100);
+  assert.equal(scale(null, pts), null);
+});
+
+test("health report: only uploads in the period, scores and tips", async (t) => {
+  const day = 86400_000, now = Date.now();
+  const ago = (d) => new Date(now - d * day).toISOString();
+  // Ten uploads a week apart; the newer ones get more views. One is older than the 90 days asked for.
+  const vids = {};
+  const ids = [];
+  for (let i = 0; i < 10; i++) {
+    const id = "v" + i;
+    ids.push(id);
+    vids[id] = { id, snippet: { title: "A good video title number " + i, publishedAt: ago(8 + i * 7), description: "0:00 Intro\nhttps://x.com #tag " + "word ".repeat(120), tags: ["a", "b", "c", "d", "e"], defaultAudioLanguage: "en" },
+      statistics: { viewCount: String(2000 - i * 150), likeCount: "80", commentCount: "8" }, contentDetails: { duration: "PT8M", caption: "true" } };
+  }
+  vids.old = { id: "old", snippet: { title: "Old", publishedAt: ago(200) }, statistics: { viewCount: "5" }, contentDetails: { duration: "PT1M" } };
+  const asked = [];
+  const f = fakeFetch({
+    "https://www.googleapis.com/youtube/v3/channels": { items: [{ id: "UC1", snippet: { title: "S", publishedAt: "2020-01-01T00:00:00Z" }, statistics: { subscriberCount: "10000", viewCount: "50000", videoCount: "11" }, contentDetails: { relatedPlaylists: { uploads: "UU1" } }, brandingSettings: { channel: { keywords: "one two" } } }] },
+    "https://www.googleapis.com/youtube/v3/playlistItems": { items: ids.concat("old").map((id) => ({ contentDetails: { videoId: id, videoPublishedAt: vids[id].snippet.publishedAt } })), nextPageToken: "P2" },
+    "https://www.googleapis.com/youtube/v3/videos": (u) => { asked.push(u.searchParams.get("id")); return { items: u.searchParams.get("id").split(",").map((id) => vids[id]) }; },
+  });
+  t.mock.method(globalThis, "fetch", f);
+  const r = await getReport(env, new URLSearchParams({ c: "UC_x5XG1OV2P6uZZ5FSM9Ttw", p: "90" }));
+  assert.equal(r.period, "90");
+  assert.equal(r.sample, 10);
+  assert.equal(asked.length, 1, "stops paging once older uploads appear");
+  assert.ok(!asked[0].includes("old"));
+  assert.equal(r.capped, false);
+  assert.equal(r.seo.chapters, 100);
+  assert.equal(r.seo.tags, 100);
+  assert.ok(r.momentum.change > 1, "newer videos do better");
+  assert.ok(r.scores.momentum >= 80);
+  assert.equal(r.reach, Math.round((r.medianViews / 10000) * 1000) / 10);
+  assert.ok(r.overall > 0 && r.overall <= 100);
+  assert.ok("ABCDF".includes(r.grade));
+  assert.ok(r.tips.some((x) => x.code === "momentum_up"));
+  assert.equal(r.uploads[0].id, "v0");
+});
+
+test("health report of a channel with no uploads in the period", () => {
+  const c = { id: "UC1", snippet: { title: "S" }, statistics: { subscriberCount: "5", viewCount: "0", videoCount: "0" } };
+  const r = healthReport(c, [], { period: "30", since: Date.now() - 30 * 86400_000, capped: false });
+  assert.equal(r.sample, 0);
+  assert.equal(r.scores.consistency, 0);
+  assert.equal(r.tips[0].code, "no_uploads");
 });
 
 test("outliers score each upload against the channel's median, over two pages", async (t) => {
