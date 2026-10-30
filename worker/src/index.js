@@ -21,6 +21,7 @@ import { runSsl } from "./ssl.js";
 import { buildReport } from "./report.js";
 import { attack, LEVELS } from "./lab.js";
 import { handleYt } from "./yt.js";
+import { allowedOrigins, originAllowed, clientIp, withinBurst, daySpent, markDaySpent } from "./guard.js";
 
 const PARTS = {
   core: "core",
@@ -38,11 +39,14 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     try {
+      // Cheap checks first (guard.js): pages on other websites, and bursts from one visitor.
+      if (!originAllowed(request, env)) throw codeError("forbidden_origin", 403);
+      const who = clientIp(request);
+      if (!(await withinBurst(env, who))) throw codeError("rate_limited", 429);
       const url = new URL(request.url);
       const parts = url.pathname.split("/").filter(Boolean);
       if (parts[0] === "yt" && parts.length === 2) {
-        const ip = request.headers.get("cf-connecting-ip") || "unknown";
-        return await handleYt(request, env, ctx, parts[1], { cors, limit: () => ytLimit(env, ip) });
+        return await handleYt(request, env, ctx, parts[1], { cors, limit: () => ytLimit(env, who) });
       }
       let body;
       if (request.method === "POST" && parts[0] === "scan" && parts.length === 1) body = await startScan(request, env);
@@ -90,7 +94,7 @@ async function startScan(request, env) {
     if (hit) return { id: hit.id, key: hit.key, cached: true };
   }
 
-  await rateLimit(env, ip, now);
+  await rateLimit(env, clientIp(request), now);
 
   const id = randomId(12);
   const key = randomId(18);
@@ -193,7 +197,7 @@ async function startLab(request, env) {
 
   const now = Date.now();
   const hour = Math.floor(now / 3600_000);
-  const ipKey = `lh:${await sha256(ip + labSecret(env))}:${hour}`;
+  const ipKey = `lh:${await sha256(clientIp(request) + labSecret(env))}:${hour}`;
   const r = await env.DB.prepare("INSERT INTO hits (k, n, reset) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET n = n + 1 RETURNING n")
     .bind(ipKey, (hour + 1) * 3600_000).first();
   if (r.n > num(env.LAB_SESSIONS_PER_HOUR, 3)) throw codeError("rate_limited", 429);
@@ -224,8 +228,9 @@ async function runLab(request, env) {
   const day = Math.floor(now / 86400_000);
   const ai = {
     run: async (model, opts) => {
+      if (daySpent("lab", day)) throw codeError("daily_limit", 429);
       const d = await env.DB.prepare(upsert).bind(`ld:${day}`, (day + 1) * 86400_000).first();
-      if (d.n > num(env.LAB_RUNS_PER_DAY, 700)) throw codeError("daily_limit", 429);
+      if (d.n > num(env.LAB_RUNS_PER_DAY, 700)) { markDaySpent("lab", day); throw codeError("daily_limit", 429); }
       return env.AI.run(model, opts);
     },
   };
@@ -271,13 +276,14 @@ async function rateLimit(env, ip, now) {
   const day = Math.floor(now / 86400_000);
   const ipKey = `h:${await sha256(ip + (env.HASH_SALT || env.TURNSTILE_SECRET))}:${hour}`;
   const dayKey = `d:${day}`;
+  if (daySpent("scan", day)) throw codeError("daily_limit", 429);
   const upsert = "INSERT INTO hits (k, n, reset) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET n = n + 1 RETURNING n";
   const [a, b] = await env.DB.batch([
     env.DB.prepare(upsert).bind(ipKey, (hour + 1) * 3600_000),
     env.DB.prepare(upsert).bind(dayKey, (day + 1) * 86400_000),
   ]);
   if (a.results[0].n > num(env.SCANS_PER_HOUR, 5)) throw codeError("rate_limited", 429);
-  if (b.results[0].n > num(env.SCANS_PER_DAY, 300)) throw codeError("daily_limit", 429);
+  if (b.results[0].n > num(env.SCANS_PER_DAY, 300)) { markDaySpent("scan", day); throw codeError("daily_limit", 429); }
 }
 
 // The YouTube tools: lookups per visitor per hour, and for everyone per day (keeps inside the free API quota).
@@ -285,6 +291,7 @@ async function ytLimit(env, ip) {
   const now = Date.now();
   const hour = Math.floor(now / 3600_000);
   const day = Math.floor(now / 86400_000);
+  if (daySpent("yt", day)) throw codeError("daily_limit", 429);
   const ipKey = `yh:${await sha256(ip + (env.HASH_SALT || env.TURNSTILE_SECRET || ""))}:${hour}`;
   const upsert = "INSERT INTO hits (k, n, reset) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET n = n + 1 RETURNING n";
   const [a, b] = await env.DB.batch([
@@ -292,14 +299,14 @@ async function ytLimit(env, ip) {
     env.DB.prepare(upsert).bind(`yd:${day}`, (day + 1) * 86400_000),
   ]);
   if (a.results[0].n > num(env.YT_PER_HOUR, 60)) throw codeError("rate_limited", 429);
-  if (b.results[0].n > num(env.YT_PER_DAY, 3000)) throw codeError("daily_limit", 429);
+  if (b.results[0].n > num(env.YT_PER_DAY, 3000)) { markDaySpent("yt", day); throw codeError("daily_limit", 429); }
 }
 
 // ----- Helpers -----
 
 function corsHeaders(request, env) {
   const origin = request.headers.get("origin") || "";
-  const allowed = String(env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const allowed = allowedOrigins(env);
   const h = {
     "access-control-allow-methods": "GET, POST, OPTIONS",
     "access-control-allow-headers": "content-type, x-scan-key, x-lab-key",
@@ -319,11 +326,13 @@ function json(body, status, cors) {
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
+      "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
     },
   });
 }
 
 async function readJson(request) {
+  if (Number(request.headers.get("content-length")) > 10_000) throw codeError("bad_request", 413);
   const text = await request.text();
   if (text.length > 10_000) throw codeError("bad_request");
   try { return JSON.parse(text); } catch { throw codeError("bad_request"); }

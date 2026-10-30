@@ -718,6 +718,6 @@ export async function handleYt(request, env, ctx, name, { cors, limit }) {
     }
   }
   return new Response(body, {
-    headers: { ...cors, "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" },
+    headers: { ...cors, "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" },
   });
 }

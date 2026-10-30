@@ -112,6 +112,10 @@ In the repository: **Settings → Secrets and variables → Actions → New repo
   The page then calls `POST /scan/<id>/<part>` for each part (`core`, `psi-mobile`, `psi-desktop`, `links-0`,
   `links-1`, `ssl`) in parallel, because a free Worker may make only 50 outside requests per call.
   `GET /report/<id>` returns the report, which is also what a shared link shows.
+- `src/guard.js`: runs before everything else. It refuses requests a browser sends from another website, turns away
+  more than 120 requests a minute from one visitor (the free `BURST` rate-limit binding, no database write), and
+  counts IPv6 visitors by their /64 block so one person can't pose as millions of addresses. The API only answers at
+  api.sanaullahniazi.com (`workers_dev = false`), so the domain's Cloudflare security rules always apply.
 - `src/net.js`: resolves every host with DNS over HTTPS and refuses private, internal and reserved addresses
   (also after each redirect), odd ports and non-web schemes.
 - `src/core.js`: the page, headers, cookies, robots.txt, sitemap, security.txt, SPF/DMARC/DKIM, Observatory,

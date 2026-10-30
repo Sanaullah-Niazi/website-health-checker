@@ -2,7 +2,9 @@
 name = "site-checker"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
-workers_dev = true
+# Only api.sanaullahniazi.com answers. The free *.workers.dev address is off, because requests there would skip the
+# domain's Cloudflare security settings (WAF, rate limiting and bot rules in the dashboard).
+workers_dev = false
 
 # The API lives at https://api.sanaullahniazi.com (the domain is on Cloudflare, so the DNS record is created for you).
 routes = [{ pattern = "api.sanaullahniazi.com", custom_domain = true }]
@@ -10,6 +12,14 @@ routes = [{ pattern = "api.sanaullahniazi.com", custom_domain = true }]
 # Keep the Worker's logs (errors and console output) in the Cloudflare dashboard: Workers > site-checker > Logs.
 [observability]
 enabled = true
+
+# Burst limit (src/guard.js): requests per visitor per minute, counted in Cloudflare's memory before anything else
+# runs. Far above what a person clicking around needs, low enough to turn a flood away cheaply. Free.
+# namespace_id is any number unique within the Cloudflare account.
+[[ratelimits]]
+name = "BURST"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }
 
 # Delete expired reports and rate-limit counters once a day.
 [triggers]
